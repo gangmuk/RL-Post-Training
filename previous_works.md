@@ -168,6 +168,7 @@ index columns (venue · paper · one-line problem) come first, then the design-s
 | **GroupMind/Seer** | OSDI 2026 | [arXiv 2511.14617](https://arxiv.org/abs/2511.14617) | Predict rollout lengths from within-group siblings to load-balance + draft, using only within-step signal. | colocated (in-house vLLM + Megatron + Mooncake) | **sync** | chunked migratable rollout | group-aware online length prediction | probe-per-group → longest-first + grouped spec-decode | on-policy | GPU compute + mem-BW + KVCache | reasoning |
 | **RollPacker** | NSDI 2026 | [arXiv 2509.21009](https://arxiv.org/abs/2509.21009) | Remove the synchronous long-tail bubble by repacking rollouts into short/long rounds, accuracy-preserving. | on ROLL (vLLM + Megatron + Ray) | **sync** | elastic TP per round | **tail batching** (short/long rounds) | oversample + abort tail → long rounds; stream trainer | on-policy | GPU compute + GPU mem (elastic TP) | reasoning |
 | **AReaL** | arXiv 2025 (Ant/THU) | [arXiv 2505.24298](https://arxiv.org/abs/2505.24298) | Fully decouple rollout/train with bounded-staleness admission control + an off-policy-correct objective. | standalone (SGLang + Megatron/FSDP, SLURM) | **async** | static 3:1 inference:training | decoupling + admission control | overlap; interrupt mid-decode | hard max-staleness η + decoupled PPO | GPU compute (both pools) + GPU mem (KV) | reasoning |
+| **StreamRL** | arXiv 2025 (PKU/StepFun) | [arXiv 2504.15930](https://arxiv.org/abs/2504.15930) | Kill the *pipeline* and *skewness* bubbles in disaggregated RL via stream generation + output-length-ranked dispatch; cross-datacenter. | standalone (in-house C++ engine + Megatron-style + RL-RPC) | **sync or 1-step async** | disaggregated gen/train pools (cross-DC, heterogeneous) | stream pipelining + skewness-aware dispatch | predict length → isolate long-tail on dedicated instances | one-step stale (async variant) | GPU compute (both bubbles) + **WAN/RDMA net** | reasoning |
 | **RLBoost/PolyRL** | NSDI 2026 | [arXiv 2510.19225](https://arxiv.org/abs/2510.19225) | Offload stateless rollout onto cheap preemptible spot GPUs while keeping the trainer strictly on-policy. | veRL fork + Rust rollout-mgr + SGLang | **sync** | reserved train + elastic spot rollout | **cost** (spot harvesting) | token-level migration; JSQ load-balance | on-policy (latest-weight routing) | GPU compute (spot $) + **NIC/frontend net** | reasoning |
 | **slime** | system, LMSYS '25 (THUDM) | [repo](https://github.com/THUDM/slime) · [APRIL 2509.18521](https://arxiv.org/abs/2509.18521) | Server-based rollout + a quality-gated buffer for flaky, long-tailed agentic rollout (the GLM line). | standalone (Megatron + SGLang servers + Ray) | **both/async** | colocate or disaggregate (±PD) | **server-based** rollout + quality buffer | continuous batching + APRIL partial-recycle | version-logged double-sided IS + clipping | GPU compute (cont. batch) + CPU (tools) | **agentic** |
 | **RLinf/RLux** | OSDI 2026 | [arXiv 2509.15965](https://arxiv.org/abs/2509.15965) | Auto-choose the execution mode (colocate/disaggregate/hybrid) + placement for the RL dataflow. | standalone (Ray + Megatron/FSDP + SGLang/vLLM/HF) | **flex (both)** | auto colocate/disagg/**hybrid** (M2Flow) | execution-mode search | elastic pipelining overlap | mode-dependent | GPU compute + mem (onload/offload) + interconnect | reasoning + embodied |
@@ -272,9 +273,10 @@ with speculative decoding.*
 
 ### 3.2 Asynchronous / decoupled training
 
-*These break the synchronous barrier entirely: rollout and training run as decoupled
-producer/consumer pipelines, trading on-policy purity for utilization, and managing the
-resulting staleness algorithmically.*
+*These decouple rollout from training onto separate (often disaggregated) pools and overlap them,
+managing the resulting staleness algorithmically — AReaL goes fully async with a staleness budget,
+StreamRL pipelines a disaggregated cross-datacenter setup (sync or one-step-async), and slime runs
+server-based agentic rollout behind a quality-gated buffer.*
 
 ### AReaL: A Large-Scale Asynchronous RL System for Language Reasoning
 
@@ -287,6 +289,18 @@ resulting staleness algorithmically.*
 **Results:** vs **veRL** end-to-end: 1.5B 2.27×, 7B 2.05×, 14B 2.03×, 32B 1.49× (veRL OOMs at 32k/32B); up to 2.77× vs synchronous overall; linear scaling to 512 GPUs. Ablations: dynamic batching ≈+30% throughput; interruptible generation +12–17%. Accuracy preserved: η≤8 ≈ matches the η=0 (synchronous oracle) — AIME24 42.0 vs 42.2, MATH500 89.2 vs 89.5. Baseline: veRL (synchronous).
 
 **Stack (where the contribution lives):** A standalone asynchronous framework (veRL is the baseline it beats). The contribution is concentrated in a custom Rollout Controller (replay buffer + admission/version-tracking), an interruptible-generation hook into the inference engine, and the decoupled-PPO loss; the four decoupled component types (Interruptible Rollout Workers, Reward Service, Trainer Workers, Controller) run **SGLang** (or vLLM) for generation and **Megatron-Core / FSDP2** for training under SLURM, otherwise reused as-is. Links: https://arxiv.org/abs/2505.24298 ; https://github.com/inclusionAI/AReaL.
+
+### StreamRL (arXiv:2504.15930, Peking University + StepFun)
+
+**Problem (category):** Eliminating the two idle-bubble types of *disaggregated* RL — pipeline bubbles and skewness bubbles — via stream generation + output-length-ranked dispatch, including across datacenters (synchronous or one-step-async).
+
+**Problem:** Disaggregating RL into a separate generation pool and a training pool is attractive (each can use its own parallelism and even its own hardware), but a naive disaggregated design leaves two distinct sources of idle GPU time. **Pipeline bubbles**: the generation stage sends its samples to the training stage only *after the whole batch is generated*, so the training GPUs sit idle for the entire generation phase (and vice versa) — a stage-dependency stall. **Skewness bubbles**: output lengths are long-tailed, so toward the end of a generation phase only a handful of long-tail samples are still decoding while the rest of the generation GPUs have gone idle — the same straggler problem, now *within* the generation pool. A further wrinkle is that the two pools may sit in *different datacenters* or on *heterogeneous* GPUs, so weight synchronization must cross a slow WAN. The problem is to remove both bubbles and keep both pools busy under disaggregation, without giving up convergence.
+
+**Approach:** StreamRL attacks the two bubbles with two matched mechanisms. Against pipeline bubbles, **stream generation** forwards each completed sample to the training stage *immediately* rather than at end-of-batch, so training can begin sample-level work while generation is still running — overlapping the two stages across the disaggregated pools (in the one-step-async variant, training consumes the previous step's stream so the pools run fully concurrently). Against skewness bubbles, it predicts each prompt's output length with an **output-length ranker** — a *small LLM* supervised-fine-tuned to rank prompts by expected length — and uses **skewness-aware dispatching** (Algorithm 2) to isolate the predicted long-tail samples onto dedicated generation instances run at smaller batch size, so a few long generations no longer strand a whole instance's GPUs. The disaggregation is made cross-datacenter-capable by **RL-RPC**, a GPU-Direct-RDMA transfer layer, plus a network-aware broadcast tree for weight sync (only DP-rank-0 ships weights across the WAN to a remote generation instance, which then fans out locally). The reusable lesson is that disaggregation creates *two separable* bubbles — a cross-stage one cured by streaming/pipelining and an intra-generation one cured by length-prediction + straggler isolation — and that a cheap learned length predictor is enough to drive the latter. It offers both a synchronous (on-policy) and a one-step-asynchronous variant; the async reward curve is reported to closely match the synchronous one, so the staleness is benign. Resource-wise it targets GPU-compute utilization (both bubbles) and makes the cross-pool/cross-DC **network** (RDMA, WAN broadcast tree) a first-class concern.
+
+**Results:** up to **2.66× throughput** over SOTA: **1.12×–2.12× vs veRL** and 1.06×–1.41× vs an in-house colocated baseline (**ColocationRL**) for the synchronous variant, and 1.30×–2.66× for the one-step-async variant; cross-datacenter cost-effectiveness 1.23×–1.31×. Qwen2.5 7B/32B/72B on 128 H800 (+32 H20 for the cross-DC experiments). Baselines: **veRL**, **ColocationRL** (colocated in-house).
+
+**Stack (where the contribution lives):** A standalone disaggregated system (not built on veRL). The contribution — stream generation, the length ranker + skewness dispatcher, and the RL-RPC/WAN weight-broadcast layer — sits around an **in-house C++ generation engine (SGS)** (continuous batching + prefix sharing) and a Megatron-style 3D-parallel trainer. Same lineage as DistServe (lead author Yinmin Zhong). *Context:* this is the disaggregation point that RollArt/MARS beats (1.35×) and that RLBoost reimplements as its "Disagg.BAL" baseline. Links: https://arxiv.org/abs/2504.15930.
 
 ### slime — SGLang-native RL post-training framework (THUDM / Zhipu GLM team)
 
@@ -423,9 +437,8 @@ Links: https://www.usenix.org/conference/osdi26/presentation/wang-yuanqing
 
 ## 4. Neighboring work (not on the core list, relevant for related-work framing)
 
-**Asynchronous / decoupled RL.** **StreamRL** (arXiv:2504.15930) — disaggregated, cross-DC async;
-explicitly separates *pipeline bubbles* (stage dependency) from *skewness bubbles* (long-tail),
-output-length-ranker dispatch, up to 2.66×. **AsyncFlow** (arXiv:2507.01663) — TransferQueue data
+**Asynchronous / decoupled RL.** *(StreamRL is now a full entry in §3.2.)*
+**AsyncFlow** (arXiv:2507.01663) — TransferQueue data
 store, bounded-staleness producer/consumer, ~1.59×. **Trinity-RFT** (arXiv:2505.17826) — decoupled
 Explorer/Trainer/Buffer; unifies sync/async + on/off-policy + agentic. **AReaL-Hex**
 (arXiv:2511.00796) — AReaL over *heterogeneous* GPUs (placement/allocation across mixed hardware).
