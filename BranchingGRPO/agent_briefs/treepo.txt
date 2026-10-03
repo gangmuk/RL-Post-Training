@@ -1,0 +1,19 @@
+Research task: read one paper and its open-source code in full, and report precisely how it works.
+
+Context: I'm helping a researcher who is designing a new sampling scheme for GRPO (Group Relative Policy Optimization) RL post-training of LLM agents. Their idea: in multi-turn agentic tasks (turns separated by tool calls), don't launch all G trajectories independently from the shared prompt; start with a few, and adaptively fork new samples from an intermediate turn (sharing the prefix), so the group becomes a tree. We need to know exactly what prior work already does so we can identify what is still novel.
+
+Your target: the paper I recall as "TreePO: Bridging the Gap of Policy Optimization and Efficacy and Inference Efficiency with Heuristic Tree-based Modeling" (around August 2025). I am recalling this from memory and have NOT verified it — first confirm it exists and get the correct citation (arXiv ID, authors, date). Read the full paper (arXiv HTML or PDF, not just the abstract), then find the official code repo if one exists, clone it into /private/tmp/claude-502/-Users-gangmuk2-projects-rlopt/355117d8-8324-4513-bf82-748327fc62da/scratchpad/prior_work/ and read the actual implementation.
+
+Report back, answering each of these specifically:
+1. Citation: exact title, authors, arXiv ID, date, repo URL (or "no code released").
+2. Tree construction: what is a node (fixed-length token segment / turn / other)? When and where do branches happen — fixed schedule or adaptive? If there are heuristics (branching budget, fallback, early stopping, probability-based divergence), describe each exactly and what signal drives it.
+3. Advantage/baseline: exactly how advantages are computed over the tree (subgroup / hierarchical baselines). Give the formulas and the normalisation.
+4. Shared prefix handling in the loss: are prefix tokens trained once or once per descendant? Any weighting?
+5. Bias/on-policy discussion: do they discuss whether tree sampling or early stopping biases the policy gradient?
+6. Environment state: single-turn reasoning or multi-turn with tools? If there is an environment, how is it forked?
+7. Systems aspects: KV/prefix cache reuse and how the compute savings are measured, sync vs async, training framework and inference engine.
+8. Results: main claims on GPU-hours / token savings and accuracy versus flat GRPO, with numbers.
+9. Code: the specific files and functions implementing branching and the advantage computation, with a short description of each. Note any discrepancy between paper and code.
+10. Limitations they state and stated future work.
+
+Distinguish clearly between what you verified by reading the paper/code directly and what you are inferring. If you could not access something, say so plainly rather than filling in from guesswork. Do not modify anything outside the scratchpad directory.

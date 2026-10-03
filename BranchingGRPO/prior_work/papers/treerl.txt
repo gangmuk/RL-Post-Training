@@ -1,0 +1,1101 @@
+                                               TreeRL: LLM Reinforcement Learning with On-Policy Tree Search
+
+
+                                             Zhenyu Hou*,1            Ziniu Hu*,2 Yujiang Li*,1 Rui Lu*,1 Jie Tang1 Yuxiao Dong1
+                                                                  1
+                                                                    Tsinghua University 2 California Institute of Technology
+
+
+
+
+                                                                  Abstract                                               MCTS                      SFT
+                                                                                                               70                                  ChainRL
+                                                                                                                         Multi-chain
+                                                                                                                                                   TreeRL(Ours)            +8.5
+
+
+
+
+                                                                                                 PassRate(%)
+                                                                                                                         EPTree                                         +5.6
+                                                                                                               65
+arXiv:2506.11902v1 [cs.LG] 13 Jun 2025
+
+
+
+
+                                              Reinforcement learning (RL) with tree search
+                                                                                                                                                                 36.0
+                                              has demonstrated superior performance in tra-                    60
+                                              ditional reasoning tasks. Compared to conven-                                                               +4.6
+                                                                                                               55                                      +2.5
+                                              tional independent chain sampling strategies                                                      24.7
+                                              with outcome supervision, tree search enables                    50 14
+                                                                                                                 2           2
+                                                                                                                                 15
+                                                                                                                                       2
+                                                                                                                                           16    GLM4-9B Qwen-2.5-14B
+                                              better exploration of the reasoning space and                            Inference Budget
+                                              provides dense, on-policy process rewards dur-     Figure 1: Left: Performance comparison of sampling
+                                              ing RL training but remains under-explored         strategies. EPTree consistently outperforms i.i.d multi-
+                                              in On-Policy LLM RL. We propose TreeRL,            chain sampling and MCTS under different inference
+                                              a reinforcement learning framework that di-        budgets. Right: TreeRL powered with EPTree demon-
+                                              rectly incorporates on-policy tree search for      strates better performance than ChainRL with i.i.d multi-
+                                              RL training. Our approach includes interme-        chain sampling.
+                                              diate supervision and eliminates the need for
+                                              separate reward model training. Existing ap-
+                                              proaches typically train a separate process re-
+                                                                                                 feedback (OpenAI, 2024; Guo et al., 2025; Hou
+                                              ward model, which can suffer from distribu-
+                                              tion mismatch and reward hacking. We also          et al., 2025; Shao et al., 2024b).
+                                              introduce a cost-effective tree search approach       Current RL methods for LLM training generally
+                                              that achieves higher search efficiency under the   independently sample multiple trajectories (Shao
+                                              same generation token budget by strategically      et al., 2024b; Wang et al., 2024b; Touvron et al.,
+                                              branching from high-uncertainty intermediate       2023) and obtain reward signals based on the final
+                                              steps rather than using random branching. Ex-
+                                                                                                 answers. However, tree search, which has demon-
+                                              periments on challenging math and code rea-
+                                              soning benchmarks demonstrate that TreeRL          strated significant success in other domains like
+                                              achieves superior performance compared to tra-     AlphaZero (Silver et al., 2017), remains under-
+                                              ditional ChainRL, highlighting the potential of    developed in reinforcement learning for LLM rea-
+                                              tree search for LLM. TreeRL is open-sourced        soning. Existing efforts have mainly focused on
+                                              at https://github.com/THUDM/TreeRL.                using tree search to enhance inference-time per-
+                                                                                                 formance alongside an external reward (Zhang
+                                         1    Introduction                                       et al., 2024a; Chen et al., 2024a), or to produce
+                                                                                                 data for offline training (Chen et al., 2024a; Xie
+                                         Large language models (LLMs) have demonstrated          et al., 2024; Zhang et al., 2024a) (e.g., finetuning
+                                         remarkable capabilities across diverse complex rea-     or DPO (Rafailov et al., 2023)), as illustrated in
+                                         soning tasks (Achiam et al., 2023; Team et al.,         Figure 2. But Guo et al. (2025) also demonstrates
+                                         2023; Dubey et al., 2024), including mathemat-          the limitation of distribution shift and reward hack-
+                                         ics (Shao et al., 2024b), programming (Lozhkov          ing in offline tree search compared to online RL
+                                         et al., 2024; Zhu et al., 2024), and autonomous         training. Up to now, the potential of on-policy RL
+                                         agents (Zhou et al., 2024). Reinforcement learn-        training incorporating tree search to improve LLM
+                                         ing (RL) has emerged as a powerful approach             reasoning remains largely unexplored.
+                                         to significantly improve the reasoning abilities of
+                                                                                                    The challenges are two-fold. First, classical
+                                         LLMs by optimizing the policy through reward
+                                                                                                 Monte Carlo Tree Search (MCTS) (Browne et al.,
+                                             * Equal contribution; order is alphabetical.        2012) can be less effective nd efficient than inde-
+                                               RL Sampling                              RL Sampling
+
+                                                                    …                                         +1/3
+                                                              +1           0
+
+
+                                                                                                           +1/2       +1
+                                                              +1           0
+
+                                           Policy Model                        Policy Model
+                           SFT/DPO                            +1           0                          +1          0        +1
+
+
+                                                RL Training                          RL Training
+
+                                                ChainRL : i.i.d sampling            TreeRL (Ours): On-policy Tree search
+     Offline training with Tree search
+                                                with outcome supervision                  with process supervision
+
+Figure 2: Illustration of offline training with tree search (Left), traditional ChainRL with online i.i.d multi-response
+sampling (Middle), and TreeRL with tree search (Right).
+
+
+pendently sampling multiple responses. MCTS                   pared to its parent step in the tree. Since these
+achieves a lower PassRate performance under the               advantage signals are derived directly from the on-
+same inference cost, as shown in Figure 1. The                policy generated trees, they are inherently resistant
+step-by-step generation requires numerous itera-              to reward hacking (Skalse et al., 2022) and do not
+tions and is not friendly to modern LLM inference             rely on any additional reward models.
+engines. Second, though tree search could provide                We evaluate TreeRL on challenging college-
+fine-grained process supervision, the derived of-             level and competition-level math and code rea-
+fline process reward model almost contributes to              soning benchmarks based on Qwen (Qwen, 2024)
+no performance improvement in RL training (Guo                and GLM (GLM et al., 2024). Experiments show
+et al., 2025).                                                that TreeRL achieves superior performance and
+   To address this gap, we propose TreeRL, a rein-            demonstrates advantages over traditional indepen-
+forcement learning (RL) approach for LLMs em-                 dent multi-chain sampling. The gain benefits from
+ployed with tree search. Under the same inference             both EPTree with promising PassRate performance
+cost as independent multiple sampling, our method             and process supervision. These results highlight
+generates more diverse and effective responses and            the potential of RL with tree search to advance
+also provides on-policy process supervision signals           complex reasoning capabilities for LLM. The im-
+to further boost RL performance.                              plementation of TreeRL is available at https:
+   First, we introduce an efficient and effective             //github.com/THUDM/TreeRL.
+tree search strategy EPTree. Unlike MCTS which
+breaks answers into smaller parts to allow the                2    Preliminary
+model to explore step-by-step, we obtain a new                To align the fine-tuned model πθ with feedback
+response by forking branches from the most uncer-             signals, Ouyang et al. (2022) proposes to apply
+tain intermediate tokens in the existing tree based           reinforcement learning (RL) to enable LLM to
+on entropy and continuing the generation until the            learn from self-exploration. Reinforcement learn-
+final answer. Thus EPTree requires fewer tokens               ing maximizes a reward signal, e.g., human pref-
+but encourages effective exploration for the diverse          erence or final answer correctness. The typical
+answers. And it typically requires only around two            RL for the LLM process works as follows: for a
+iterations to form the generation trees.                      given prompt x, the policy model πθ generates K
+   One step further, we leverage the tree search for          possible responses, denoted as (y1 , . . . , yK ). The
+reinforcement learning with process supervision.              reward function r(x, yi ) then assigns a scalar re-
+Each step in the trees is assigned a credit based on          ward to each pair (x, yi ). Afterward, the policy
+advantage, i.e., how much that step improves the              model πθ is updated using reinforcement learning
+likelihood of reaching a correct solution compared            to optimize the following objective:
+to other steps. The process signal for a given rea-
+                                                                                    K
+soning step is calculated as a weighted sum of two                               1 X
+components: 1) global advantage, which reflects                         E            A(x, yi ) log πθ (yi |x)              (1)
+                                                                   x∼pdata ,y∼πθ K
+                                                                                    i
+the step’s potential over the overall correctness rate
+for the question, and 2) local advantage, which               where A(·) is the advantage function and usually
+quantifies the improvement the step provides com-             defined as A(x, yi ) = β(r(x, yi ) − b), where b
+                                RL sampling with Tree Search
+
+                   Identify tokens     Expansion   Tree with Process Signals
+                  with high entropy
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          1
+                                                                    <latexit sha1_base64="7VgDzdjbKYoC8nHG4B4DTAlOwMY=">AAAB9HicbVBNSwMxEJ2tX7V+VT16CRbBU9kUUS9C0YvHCvYD2qVk02wbms2uSbZQlv0dXjwo4tUf481/Y9ruQVsfDDzem2Fmnh8Lro3rfjuFtfWNza3idmlnd2//oHx41NJRoihr0khEquMTzQSXrGm4EawTK0ZCX7C2P76b+e0JU5pH8tFMY+aFZCh5wCkxVvJaN71AEZriLK1l/XLFrbpzoFWCc1KBHI1++as3iGgSMmmoIFp3sRsbLyXKcCpYVuolmsWEjsmQdS2VJGTaS+dHZ+jMKgMURMqWNGiu/p5ISaj1NPRtZ0jMSC97M/E/r5uY4NpLuYwTwyRdLAoSgUyEZgmgAVeMGjG1hFDF7a2IjohNwdicSjYEvPzyKmnVqviyih8uKvXbPI4inMApnAOGK6jDPTSgCRSe4Ble4c2ZOC/Ou/OxaC04+cwx/IHz+QNqrJHg</latexit>
+
+
+
+
+                                                                    V =
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    1
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               <latexit sha1_base64="K+Jep7KWF4Gbm0kImfN4YADUaMU=">AAAB+HicbVBNS8NAEJ3Ur1o/GvXoZbEInkpSRL0IVS8ePFSwH9CGstlu2qWbTdjdCDXkl3jxoIhXf4o3/43bNgdtfTDweG+GmXl+zJnSjvNtFVZW19Y3ipulre2d3bK9t99SUSIJbZKIR7LjY0U5E7Spmea0E0uKQ5/Ttj++mfrtRyoVi8SDnsTUC/FQsIARrI3Ut8t3/avLXiAxSd0srWV9u+JUnRnQMnFzUoEcjb791RtEJAmp0IRjpbquE2svxVIzwmlW6iWKxpiM8ZB2DRU4pMpLZ4dn6NgoAxRE0pTQaKb+nkhxqNQk9E1niPVILXpT8T+vm+jgwkuZiBNNBZkvChKOdISmKaABk5RoPjEEE8nMrYiMsElBm6xKJgR38eVl0qpV3bOqe39aqV/ncRThEI7gBFw4hzrcQgOaQCCBZ3iFN+vJerHerY95a8HKZw7gD6zPHxfQkrs=</latexit>
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               LA =
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        Policy Model ⇡✓
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <latexit sha1_base64="hlYE6O3bE4DSTBVWCxVXXVNopF0=">AAACC3icbVA9SwNBEN3z2/gVtbRZEgSrcCeilqKNjRDBRCEXwt5mLlncuz1258TjiLWNf8XGQhFb/4Cd/8ZNcoUmPhh4vDfDzLwgkcKg6347M7Nz8wuLS8ulldW19Y3y5lbTqFRzaHAllb4JmAEpYmigQAk3iQYWBRKug9uzoX99B9oIFV9hlkA7Yr1YhIIztFKnXPER7jEI87qSgmf0QnVBDugD9RPR8bEPyDrlqltzR6DTxCtIlRSod8pfflfxNIIYuWTGtDw3wXbONAouYVDyUwMJ47esBy1LYxaBaeejXwZ01ypdGiptK0Y6Un9P5CwyJosC2xkx7JtJbyj+57VSDI/buYiTFCHm40VhKikqOgyGdoUGjjKzhHEt7K2U95lmHG18JRuCN/nyNGnu17zDmnd5UD05LeJYIjukQvaIR47ICTknddIgnDySZ/JK3pwn58V5dz7GrTNOMbNN/sD5/AE845sr</latexit>
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          V =1
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          <latexit sha1_base64="FepD++nATXPPtomQBZL69HVOhEg=">AAAB6nicbVBNS8NAEJ3Ur1q/qh69LBbBU0lE1ItQ9OKxov2ANpTNdtMu3WzC7kQooT/BiwdFvPqLvPlv3LY5aOuDgcd7M8zMCxIpDLrut1NYWV1b3yhulra2d3b3yvsHTROnmvEGi2Ws2wE1XArFGyhQ8naiOY0CyVvB6Hbqt564NiJWjzhOuB/RgRKhYBSt9NC89nrlilt1ZyDLxMtJBXLUe+Wvbj9macQVMkmN6Xhugn5GNQom+aTUTQ1PKBvRAe9YqmjEjZ/NTp2QE6v0SRhrWwrJTP09kdHImHEU2M6I4tAselPxP6+TYnjlZ0IlKXLF5ovCVBKMyfRv0heaM5RjSyjTwt5K2JBqytCmU7IheIsvL5PmWdW7qHr355XaTR5HEY7gGE7Bg0uowR3UoQEMBvAMr/DmSOfFeXc+5q0FJ585hD9wPn8ApiONYg==</latexit>
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    2
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              <latexit sha1_base64="O4FNUUBVPEkcY5CjY2GMhj8SlHw=">AAAB+HicbVDLSsNAFL3xWeujUZduBovgqiTF10aoutBlBfuANpTJdNIOnUzCzESoIV/ixoUibv0Ud/6N0zYLbT1w4XDOvdx7jx9zprTjfFtLyyura+uFjeLm1vZOyd7da6ookYQ2SMQj2faxopwJ2tBMc9qOJcWhz2nLH91M/NYjlYpF4kGPY+qFeCBYwAjWRurZpdve1WU3kJik1Sw9zXp22ak4U6BF4uakDDnqPfur249IElKhCcdKdVwn1l6KpWaE06zYTRSNMRnhAe0YKnBIlZdOD8/QkVH6KIikKaHRVP09keJQqXHom84Q66Ga9ybif14n0cGFlzIRJ5oKMlsUJBzpCE1SQH0mKdF8bAgmkplbERlik4I2WRVNCO78y4ukWa24ZxX3/qRcu87jKMABHMIxuHAONbiDOjSAQALP8Apv1pP1Yr1bH7PWJSuf2Yc/sD5/ABYNkro=</latexit>
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              GA =
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    5
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                3
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         …
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             <latexit sha1_base64="dqQ8A5sxjSuj/LxHlhMttMND8b0=">AAACBXicbVC7TsMwFHXKq5RXgBGGiAqJqUp4L0gVLIwF0YfURJXjOq1Vx4nsG0QVZWHhV1gYQIiVf2Djb3DaDtBypCsdnXOvfe/xY84U2Pa3UZibX1hcKi6XVlbX1jfMza2GihJJaJ1EPJItHyvKmaB1YMBpK5YUhz6nTX9wlfvNeyoVi8QdDGPqhbgnWMAIBi11zF0X6AOkNazUbS5lF24gMUmPsvQk65hlu2KPYM0SZ0LKaIJax/xyuxFJQiqAcP1k27Fj8FIsgRFOs5KbKBpjMsA92tZU4JAqLx1dkVn7WulaQSR1CbBG6u+JFIdKDUNfd4YY+mray8X/vHYCwbmXMhEnQAUZfxQk3ILIyiOxukxSAnyoCSaS6V0t0sc6BdDBlXQIzvTJs6RxWHFOK87Ncbl6OYmjiHbQHjpADjpDVXSNaqiOCHpEz+gVvRlPxovxbnyMWwvGZGYb/YHx+QM0rZkF</latexit>
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             PassRatio =
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                5
+
+
+ Initialization                Iteration 1           Iteration 2
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         Policy Model Training
+
+Figure 3: Illustration of TreeRL. In each iteration, TreeRL first performs a tree search using EPTree, progressively
+expanding branches from the top-N most uncertain tokens. The resulting tree, along with the process supervision
+signals derived from each step, is then fed into reinforcement learning to update the policy model.
+
+
+is the baseline (Mei et al., 2022; Chung et al.,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             (nodes) from the top-N most uncertain tokens (as
+2021) and varies in different methods. For example,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          measured by entropy) across existing trees. This
+A(yi ) = r(yi )−mean{r(y
+              std{r(yi )}
+                          i )}
+                               in GRPO (Shao et al.,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         encourages exploration in regions of high model
+2024b) and A(yi ) = r(yi ) − K−1   1 PK                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      uncertainty, leading to improved performance. Crit-
+                                        j̸=i r(yi ) in
+RLOO (Ahmadian et al., 2024).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ically, EPTree can generate multiple trees in paral-
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             lel, and the expansion process requires only around
+3     TreeRL: Reinforcement Learning with                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    2 iterations to build a diverse and informative tree,
+      Tree Search                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            making it highly efficient. The algorithm runs the
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             following steps.
+In this section, we present TreeRL to improve                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                Initialization. To generate M trees in parallel,
+LLM reasoning with tree search. Figure 3 shows                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               we first construct M chains by generating M re-
+the overview of TreeRL. We first present an effi-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            sponses for a given prompt x as initialization of Ti
+cient and effective tree search algorithm EPTree,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            for further expansion:
+which guides tree search by token-level uncertainty
+instead of traditional Monte Carlo Tree Search                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             Y (i) = {yi ∼ πθ (· | x)}, for i = 1, 2, . . . , M
+(MCTS) (Browne et al., 2012). Then, we show
+how to integrate the tree search into reinforcement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          where πθ is the policy model and x is the prompt.
+learning with process supervision to improve rea-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Forking token selection. Next, we aim to expand
+soning capability further.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   the trees by forking new branches from the existing
+3.1    Entropy-Guided Tree Search                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            trees. We propose forking from the tokens with
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             the highest uncertainty, as these tokens provide the
+We aim to optimize the tree-search algorithm for                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             most informative signals for the model and encour-
+RL training and thus emphasize the PassRate met-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             age exploration. We use cross-entropy as a measure
+ric, which evaluates the algorithm’s ability to gen-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         of uncertainty, which quantifies the uncertainty in
+erate diverse yet correct answers under a given                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              the policy model πθ when predicting a given to-
+inference budget. Furthermore, the tree-search al-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           ken. To promote expansion, the top-N tokens with
+gorithm must be efficient and highly parallelizable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         the highest entropy values are selected across the
+In contrast, traditional MCTS requires numerous                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              whole tree Ti . Specifically, the entropy of each
+iterative generations, making it less efficient in cur-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      token v in the tree Ti is calculated as follows:
+rent LLM inference engines like VLLM (Kwon
+et al., 2023).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Bi = Top-NH(·|x) {(t, H (yt | x, y<t )) | t ∈ Ti }
+   We propose an entropy-guided tree search al-
+gorithm, EPTree. The core idea is to iteratively                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             where H(yt ) = − log πθ (yt | x, y<t ) denotes the
+expand the search tree by forking new branches                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               entropy of token yt . Additionally, we mask tokens
+                   150             MCTS
+                                                                                 512         correct trajectories, hierarchical tree structures also
+                                   Multi-chain(i.i.d)                            (8,4,2,2)   provide more fine-grained process supervision for
+                   125
+ Response Number
+                                   EPTree(Ours)                                              intermediate steps for RL training.
+                   100
+                                                                                             3.2.1 Process Supervision from Tree Search
+                    75                                     (8,2,2,2)
+                                                  (6,5,2,1)                                  At each step, we estimate the value using Monte
+                                                                 256              64
+                    50                                                                       Carlo methods. Specifically, for a step sn (corre-
+                                (6,2,1,2)
+                                                                                             sponding to a node in the tree), let L(sn ) denote the
+                    25 (4,3,2,1) 128                         32
+                               16
+                                                                                             set of all leaf nodes that are descendants of node
+                     0        14                        15                  16               sn (including node sn itself if it is a leaf). The
+                          2                        2                    2
+                                          Generation Tokens                                  value V (sn ) of node sn is computed as the ratio of
+                                                                                             correct leaf nodes among its descendants:
+Figure 4: Generation diversity comparison of EPTree,                                                             1      X
+MCTS, and i.i.d. multi-chain sampling. Both EP-                                                    V (sn ) =                  1(l is correct)
+                                                                                                              |L(sn )|
+Tree and MCTS produce approximately 2× different                                                                      l∈L(sn )
+responses compared to i.i.d. multi-chain sampling.
+                                                                                             This value reflects the potential of the node sn to
+                                                                                             lead to correct answers. Based on value, process su-
+near the end of sequences, as the model is expected                                          pervision for each step is defined using advantages,
+to explore different reasoning paths rather than sim-                                        i.e., how much a step is better than other steps,
+ply revisiting previous answers.                                                             which include both global and local advantages.
+Expansion. Given the selected tokens for each tree,                                             The global advantage of a step sn represents its
+we continue the generation process from these to-                                            potential to lead to a correct outcome compared to
+kens to form new branches. For each forking point                                            the overall correctness ratio of all samples. Without
+t, with the prefix yt and prompt x, we generate T                                            loss of generality, assume that there exists a virtual
+different candidate responses until completion:                                              root node for all subtrees, and the value of the root
+                    (i)                                                                      node V (root) represents the average correctness
+            Ynew ∼ {πθ (· | x, y<t ) , for (t, ·) ∈ Bi }T
+                                                                                             of all generated responses. The global advantage is
+where y<t denotes the prefix response before token                                           then computed as:
+t. This results in M × N × T tree nodes in total(
+N × T for each tree Ti ), each corresponding to a                                                       GA (sn ) = V (sn ) − V (root)           (2)
+new response. The tree structure Ti is updated to                                            Essentially, the global advantage of sn is equiv-
+include these new nodes:                                                                     alent to the normalized value, which can be ob-
+                                                                  (i)                        tained by first normalizing the reward across all
+                                        Ti ← Ti ∪ Ynew
+                                                                                             leaf nodes—subtracting the average reward—and
+After initialization, the forking and expansion                                              then calculating the average rewards for L(sn ).
+process is repeated for L iterations, leading to                                                The local advantage of a node sn quantifies the
+M ×(T ×N ×L+1) leaves (responses). We denote                                                 improvement the step sn provides compared to its
+this entropy-guided tree search as an (M, N, L, T )-                                         parent step p(sn ) and is defined as:
+tree, where M is the number of parallel trees, N is
+the number of forked points per iteration, L is the                                                    LA (sn ) = V (sn ) − V (p(sn ))          (3)
+number of iterations, and T is the branching factor
+at each forking point.                                                                       where V (p(sn )) denotes the value of the node
+   In comparison to independent multi-chain sam-                                             p(sn ). LA (sn ) > 0 indicates that step sn is more
+pling, the EPTree is capable of producing a larger                                           likely to lead to the correct result than its parent
+number of diverse responses under the same infer-                                            node, suggesting that this step should be encour-
+ence cost, as illustrated in Figure 4. This offers the                                       aged, and vice versa.
+potential to enhance RL performance by learning                                                 To compute the final reward for each step, we
+from more varied responses.                                                                  combine the global and local advantages as follows:
+
+3.2                Reinforcement Learning with EPTree                                                   R(sn ) = GA (sn ) + LA (sn )            (4)
+
+In this part, we show how to integrate EPTree into                                              The definition could be viewed as a spe-
+RL training. Beyond the superior potential to find                                           cial case of Generalized Advantage Estimation
+Algorithm 1 TreeRL
+  Input: Prompt x, Policy πθ , Number of Trees M , Forking Points N , Iterations L, Branches T
+  Output: Optimized Policy πθ∗
+  for i = 1 to M do                                           ▷ Create M trees with M (1 + N LT ) leaves
+      Y (i) ← {yi ∼ πθ (· | x)}, Ti ← {Y (i) }                                             ▷ Initialization
+      for l = 1 to L do                                                             ▷ Iterative Expansion
+          H(yt ) ← − log πθ (yt | x, y<t ), ∀ t ∈ Ti
+          Bi,l ← Top-NH(·|x) {(t, H (yt | x, y<t )) | t ∈ Ti }
+          for each selected forking point (t, ·) ∈ Bi,l do
+                (i,l)
+              Ynew ∼ {πθ (· | x, y<t ) , for (t, ·) ∈ Bi,l }T
+                            (i,l)
+              Ti ← Ti ∪ Ynew , j ∈ {1, · · · , T }
+  for each step sn in Ti do                                                ▷ Process Reward Calculation
+                      1    P
+      V (sn ) ←                    1(l is correct)
+                 |L(sn )| l∈L(sn )
+      R(sn ) ← |L(sn )|−1/2 ·[V (sn ) − V (root) + V (sn ) − V (p(sn )]
+                 |      {z   } |       {z          } |        {z      }
+                 Re-weight Factor   Global Advantage         Local Advantage
+  Update πθ using RL with process reward by Policy Gradient
+
+
+(GAE) (Schulman et al., 2015). The general form                                                                                (8,4,2,2)
+of GAE in LLM is defined as:                                                70
+                                                                                                                 (8,2,2,2)
+                                                                            65
+                                                              PassRate(%)
+
+
+
+      A(sn → sn+t ) = γ t V (sn+t ) − V (sn )          (5)                                           (6,5,2,1)                             64
+
+where t represents any integer time step, and γ is                          60                                                            512
+                                                                                        (6,2,1,2)
+typically set to 1 in most cases. Thus, the local                                (4,3,2,1)                       32
+                                                                            55                                         256
+advantage defined in Eq 3 corresponds to the case                                                                        MCTS
+                                                                                          16                             Multi-chain(i.i.d)
+where t = 1, while the global advantage corre-                              50                 128
+                                                                                                                             EPTree(Ours)
+sponds to the case where n = 0. Inspired by the                                      14                   15                         16
+GAE, the process supervision signal can be defined                               2                    2                          2
+                                                                                                Generation Tokens
+as a more generalized format by considering not
+only the root and direct parent but also all of its          Figure 5: Search performance of EPTree, MCTS, and
+ancestor nodes in the trajectory:                            multi-chain sampling on Omni-MATH-500 using Qwen-
+                    X                                        2.5-14B-SFT. EPTree consistently outperforms all base-
+   RGAE (sn ) =           λj · [V (sn ) − V (sj )]           lines under the different inference costs.
+                  j∈P (sn )
+                                                             quences and will be repeatedly computed in op-
+where P (sn ) represents the set of ancestor nodes           timization, we downweight the reward of these
+of sn and λj denotes the weight of each step. In             steps to prevent overfitting. The reward for each
+this work, we focus on a special format that only            non-leaf step is modified by dividing the square
+considers the direct parent and the root node.               root of the numberp of leaf nodes in its subtree:
+3.2.2 Training with Process Superivison                      R(sn ) = R(sn )/ |L(sn )|. This adjustment leads
+                                                             to improved performance in our experiments. The
+At each iteration, we first utilize EPTree described
+                                                             overall pipeline of TreeRL is illustrated in Alg 1.
+in Section 3.1 to generate M trees T = {Ti }M   i for
+the prompt, where each leaf node in T together               4         Experiment
+with its all prefix corresponds to a complete se-
+quence. For each step in the tree, the process super-        4.1            Setup
+vision signal is assigned based on Equation (4) to           Training Details. We train SFT models based
+reflect its importance.                                      on Qwen-2.5-14B (Qwen, 2024) and GLM4-
+   The sequences {S1 , S2 , . . . , S(M ×N ×L×T +M ) }       9B (GLM et al., 2024) as initialization for RL train-
+extracted from the trees are used for RL train-              ing and finetune them using the public dataset from
+ing. As all non-leaf steps appear in multiple se-            (Hou et al., 2025) for 2 epochs. For DeepSeek-R1-
+                     Table 1: Experiment results on math reasoning tasks. We report Accuracy(%) for all datasets.
+
+                                                                         Omni-MA                                  Olympiad      LiveCode
+                                                       MATH500                        AIME2024    AMC                                      Avg
+                                                                          TH-500                                   Bench         Bench
+              GPT-4o                                             76.6       26.8          9.3     45.8                 43.3         29.5   38.6
+              Llama-3.1-8B-Instruct                              52.8       15.0         10.9     22.6                 15.6         11.6   21.4
+              Llama-3.3-70B-Instruct                             73.9       27.9         24.2     50.9                 35.7         25.5   39.7
+              GLM4-9B-chat                                       50.1       12.9          1.7     17.2                 14.7         16.5   18.9
+              Qwen-2.5-7B-Instruct                               76.5       26.0         13.3     41.9                 35.0         16.8   34.9
+              Qwen-2.5-Math-7B-Instruct                          82.7       29.7         16.7     50.6                 40.7          8.1   38.1
+              Qwen-2.5-14B-Instruct                              78.9       28.7         13.7     54.5                 41.8         27.7   40.9
+              SFT (GLM-9B)                                       56.0       18.2         8.3      29.2                 22.5         14.2   24.7
+              ChainRL (GLM-9B)                                   63.0       21.8         6.1      31.6                 23.9         16.6   27.2
+              TreeRL (GLM-9B)                                    64.5       20.8         11.4     38.5                 24.8         15.8   29.3
+              SFT (Qwen-2.5-14B)                                 76.6       29.5         10.6     48.0                 36.9         14.5   36.0
+              ChainRL (Qwen-2.5-14B)                             81.6       32.7         22.2     53.9                 41.1         18.2   41.6
+              TreeRL (Qwen-2.5-14B)                              81.7       36.7         28.0     55.9                 44.6         20.8   44.5
+              SFT (R1-Distilled-Qwen-2.5-7B)                     94.0       47.8         55.9     85.5                 54.4         43.9   63.6
+              ChainRL (R1-Distilled-Qwen-2.5-7B)                 93.6       48.1         59.7     85.5                 54.5         46.1   64.5
+              TreeRL (R1-Distilled-Qwen-2.5-7B)                  94.4       49.8         60.8     85.0                 57.1         47.4   65.8
+
+                Overall Average Performance                              OlympaidBench                                        Omni-MATH-500
+          38                                                 44                                              36
+                                                             42
+Accuracy(%)
+
+
+
+
+                                                   Accuracy(%)
+
+
+
+
+                                                                                                   Accuracy(%)
+          36                                                                                                 34
+                                                             40                                              32
+          34
+                                                             38                                              30
+          32                         ChainRL                                            ChainRL                                            ChainRL
+                                     TreeRL                  36                         TreeRL               28                            TreeRL
+                 0      100      200    300                         0     100       200    300                     0          100      200    300
+                        Training steps                                    Training steps                                      Training steps
+                                                            (a) Experiments on Qwen-2.5-14B
+
+                Overall Average Performance                  28          OlympaidBench                                        Omni-MATH-500
+          20                                                 26                                              22
+Accuracy(%)
+
+
+
+
+                                                   Accuracy(%)
+
+
+
+
+                                                                                                   Accuracy(%)
+
+
+
+
+          19                                                 24
+                                                                                                             20
+          18                                                 22
+                                     ChainRL                                            ChainRL                                            ChainRL
+                                     TreeRL                  20                         TreeRL               18                            TreeRL
+          17
+                 0      100      200    300                         0     100       200    300                     0          100      200    300
+                        Training steps                                    Training steps                                      Training steps
+                                                                  (b) Experiments on GLM4-9B
+
+ Figure 6: Performance comparison between TreeRL and ChainRL during training. We report the average perfor-
+ mance across all six datasets (Left), OlympiadBench (Middle), and Omni-MATH-500 (Right). The results for the
+ other benchmarks can be found in the Appendix D.
+
+
+distilled-Qwen-2.5-7B, we directly use the open-                                   can be found in Table 4 in the Appendix. The
+source model from (Guo et al., 2025) without fur-                                  baseline i.i.d multi-chain samplings correspond to
+ther finetuning. Then, to identify the best tree                                   setting N = L = T = 0.
+search setting for RL under a given inference cost,
+                                                                                     For the RL training, we compare the perfor-
+we investigate various combinations of hyperpa-
+                                                                                   mance of RL using multi-chain sampling, referred
+rameters (M, N, L, T ) using the trained Qwen-2.5-
+                                                                                   to as ChainRL, to the proposed TreeRL under
+14B-SFT model on the Omni-MATH-500 dataset
+                                                                                   the same inference cost derived from the previous
+with PassRate as the target metric, and the results
+                                                                                   search to ensure a fair comparison. For TreeRL,
+we used sampling parameters (M, N, L, T ) =              LiveCodeBench, we report the performance using
+(6, 2, 1, 2), generating 30 responses per prompt.        the data between 202407 to 202411.
+This is comparable to multi-chain sampling with
+16 responses per prompt, given similar generation        4.2   Results of EPTree
+token budgets. Each iteration used 16 prompts for        Table 4 shows the overall performance on Omni-
+a single gradient update, resulting in a batch size of   MATH-500 and illustrates the efficiency and effec-
+256 for ChainRL and 480 for TreeRL. Therefore,           tiveness trade-off across different sampling meth-
+TreeRL actually performs reinforcement learning          ods. EPTree demonstrates a significant advantage
+with the same inference cost but with more training      over the baseline multi-chain sampling method and
+computation during training. We use rule-based           the MCTS method under the same inference cost.
+reward based on the correctness of the final answer,     And EPTree shows consistently better performance
+i.e., +1 for correct and 0 for wrong. The KL ef-         across different generation costs and outperforms
+ficiency is set to β = 10−4 , with a learning rate       the multi-chain sampling by around 3% in Pass-
+of 1.5 × 10−6 . During sampling, the temperature         Rate. Compared to MCTS, EPTree demonstrates a
+is 1.2, the top-p value is 0.95, and the maximum         more significant advantage, with the margin widen-
+sequence length is 8,192. For RL training, the train-    ing as the inference cost increases.
+ing data all come from publicly available datasets,
+including MATH-train (Hendrycks et al., 2021) and        4.3   Results on RL training
+NuminaMath (Li et al., 2024a), and we sample a           Table 1 presents the performance of various sam-
+subset for training.                                     pling strategies in RL training. Notably, TreeRL
+Evaluation We use PassRate to evaluate the ef-           equipped with EPTree sampling outperforms tradi-
+fectiveness of the proposed tree search algorithm.       tional multi-chain sampling across different bench-
+PassRate measures the potential of a model to reach      marks. In particular, Figure 6 illustrates the evalua-
+at least one correct answer among all the generated      tion performance over various training steps. While
+solutions. It should be noted that we compare tree       both sampling strategies exhibit similar perfor-
+sampling and chain sampling under similar infer-         mance during the early stages of training, TreeRL
+ence budgets, i.e., generation tokens. Specifically,     begins to show an advantage around 100 steps and
+given an evaluation dataset D, for each sample           continues to improve consistently. This indicates
+d ∈ D, let Ld be the set of generated responses and      that the TreeRL achieves better prompt efficiency
+c(l) ∈ {0, 1} be a binary indicator of correctness       by delivering enhanced performance with the same
+for a response l. The PassRate is computed as:           number of training prompts. Overall, these results
+                                                         underscore the promise of integrating tree search
+                         1 X
+           PassRate =        max c(l)                    and process supervision into RL training. It is
+                        |D|  l∈Ld
+                            d∈D                          observed that both RL methods show only minor
+                                                         improvements over the SFT baseline. This could
+For reinforcement learning, we evaluate the policy       be due to the fact that we selected the RL training
+model on 6 challenging reasoning benchmarks us-          data based on Qwen-2.5-14B, which is likely much
+ing greedy sampling, including MATH(Hendrycks            easier for the R1-Distilled-Qwen-2.5-7B model,
+et al., 2021), Omni-MATH (Gao et al., 2024),             thereby limiting the potential performance gains in
+AIME2024(Li et al., 2024a), AMC(Li et al.,               RL.
+2024a), OlympiadBench(He et al., 2024), and Live-
+CodeBench (Jain et al., 2024). For the MATH              4.4   Ablation Study on EPTree Sampling
+dataset, we use a subset known as MATH500 based
+on the split defined by (Lightman et al.). For Omni-     Effects of entropy-based forking. Table 2 illus-
+MATH, we randomly sample a subset for evalu-             trates the performance across different strategies
+ation, named Omni-MATH-500, which consists               when forking new branches in tree expansion. EP-
+of 500 examples for efficient yet comprehensive          Tree shows better PassRate than random forking
+assessment. Each dataset undergoes multiple eval-        with fewer generation tokens, which demonstrates
+uations to minimize variance; for instance, we eval-     the advantage of EPTree. In addition, both tree
+uate MATH500 and Omni-MATH-500 three times               sampling strategies outperform multi-chain sam-
+each, while AIME is evaluated 32 times, consider-        pling, offering the potential of tree search.
+ing AIME2024 consists of only 30 questions. For          Case study on forking tokens. To help better
+Table 2: Ablation of EPTree on Omni-MATH-500. We                achieves the best performance. Removing either
+compare forking branches using random and entropy-              component could lead to a decline in performance.
+based strategies on Qwen-2.5-14B-SFT. (16, 0, 0, 0) cor-
+                                                                Moreover, using a subset of sampled responses
+responds to multi-chain sampling. Entropy denotes
+whether to use entropy-based forking strategy. EP-              shows less improvement compared to utilizing the
+Tree model shows better PassRate performance yet with           entire set. This suggests that, in addition to higher
+fewer generation tokens.                                        PassRate and process supervision, tree search en-
+                                                                hances RL performance by enabling more training
+    (M, N, L, T )         Entropy     PassRate ↑     #Token ↓   within the same inference cost.
+        (6, 2, 1, 2)          ✓           56.9         22268
+        (6, 2, 1, 2)          ✗           54.8         24213    5     Related Work
+       (16, 0, 0, 0)          -           52.4         19858
+        (8, 4, 2, 2)          ✓           71.0         77768    5.1    RL for LLM Reasoning
+        (8, 4, 2, 2)          ✗           70.0         89452    Recent advanced (Guo et al., 2025; Zhu et al., 2024;
+       (64, 0, 0, 0)          -           67.4         79367    OpenAI, 2024; Ouyang et al., 2022) have demon-
+                                                                strated the effectiveness of reinforcement learning
+                       Frequent words selected by EPTree        in LLM alignment and reasoning. Most existing
+              0.040                                             methods train a reward model or use rule-based
+              0.035                                             rewards for the entire response. In parallel, process
+              0.030                                             supervision(Lightman et al., 2023) has shown a
+ Proportion
+
+
+
+
+              0.025                                             particularly promising performance than outcome
+              0.020                                             supervision. Most existing works resort to training
+              0.015                                             a process reward model (PRM) based on human-
+              0.010                                             or auto-annotated process signals(Lightman et al.,
+              0.005                                             2023; Wang et al., 2024a; Luo et al., 2024; Setlur
+              0.000                                             et al., 2024) and apply the static PRM for RL train-
+                           \(
+                           a
+                          ce
+
+                        the
+                           it
+                         ing
+                            t
+                           e
+                            t
+                         We
+
+
+
+
+                        Bu
+
+                         Le
+                        Th
+
+
+
+
+                                                                ing (Shao et al., 2024a; Wang et al., 2024a). How-
+                       Wa
+                      Sin
+
+
+
+
+                      us
+
+
+
+
+                                                                ever, a static PRM could suffer from distribution
+Figure 7: Frequent words of sampled forking tokens in           shift and reward hacking as RL training progresses.
+EPTree sampling on Omni-MATH-500.                               (Kazemnejad et al., 2024) overcomes this problem
+                                                                by conducting Monte Carlo rollouts to estimate the
+                                                                value for each step, but it suffers from high com-
+understand EPTree, we conduct case studies to an-               putation cost with around quadratic computational
+alyze what type of tokens tend to be selected. We               complexity and thus hinders scalability.
+examine frequency by identifying the top-10 tokens
+that most often serve as forking points, and the re-
+sults are illustrated in Figure 7. It can be observed           5.2    Tree Search for LLM Reasoning
+that mathematical operators (\(), logical conjunc-              Tree search has mainly been explored in LLM align-
+tions, and transitional terms (“Since”, “But”) are              ment and inference, especially for data synthesis
+frequently selected. Notably, the token “wait” ap-              and offline preference training. Xie et al. (2024)
+pears frequently, as o1-like models often use it for            employs MCTS to generate step-level preference
+self-reflection steps.                                          pairs for DPO (Rafailov et al., 2024). Chen et al.
+                                                                (2024b); Feng et al. (2024); Zhang et al. (2024b)
+4.5            Ablation on TreeRL
+                                                                employ MCTS to iteratively generate high-quality
+To test the effectiveness of process supervision in             SFT data or produce process supervision signals
+TreeRL, we compare different designs of process                 for training. Other works explore reward-guided
+supervision signals. Additionally, since the TreeRL             search (Snell et al., 2024; Yao et al., 2023; Long,
+uses more traces than RL with multi-chain sam-                  2023) to boost the performance in the inference
+pling, we also evaluate how the increased training              stage. However, few efforts have been devoted to
+cost impacts performance. The results are pre-                  studying how to explicitly integrate tree search into
+sented in Table 3. The results demonstrate that                 reinforcement learning training like AlphaZero (Sil-
+RL with reweighted local and global advantage                   ver et al., 2017) to improve LLM reasoning.
+Table 3: Ablation on the effectiveness of different process signals for RL training using Qwen2.5-14B. GA and LA
+denote the global and local advantages, respectively. n refers to the number of leaf nodes that can be reached from
+the given step. #Response denotes the number of responses used for training.
+
+                                              Omni-MA                           Olympiad    LiveCode
+     Reward        #Responses    MATH500                   AIME2024     AMC                             Avg Gain
+                                               TH-500                            Bench       Bench
+            √
+ (GA + LA )/ n          30          81.7         36.7         28.0       55.9      44.6        20.8          -
+   GA + LA              30          81.5         32.0         24.1       56.2      42.1        19.7       -1.9 ↓
+        √
+    GA / n              30          80.1         35.1         24.7       55.5      42.8        20.7       -1.3 ↓
+            √
+ (GA + LA )/ n          16          80.1         32.5         24.5       52.9      41.7        15.8       -3.2 ↓
+
+
+
+6   Conclusion                                             aod@tsinghua.edu.cn).
+This work presents TreeRL, an RL approach that
+combines tree search with process supervision to           References
+enhance LLM reasoning. EPTree improves re-
+sponse diversity and performance over traditional          Josh Achiam, Steven Adler, Sandhini Agarwal, Lama
+                                                             Ahmad, Ilge Akkaya, Florencia Leoni Aleman,
+methods like MCTS and i.i.d multi-chain sampling.            Diogo Almeida, Janko Altenschmidt, Sam Altman,
+Then, we conduct reinforcement learning with EP-             Shyamal Anadkat, et al. 2023. Gpt-4 technical report.
+Tree and the derived process supervision from tree           arXiv preprint arXiv:2303.08774.
+search. Experiments on math reasoning tasks show
+                                                           Arash Ahmadian, Chris Cremer, Matthias Gallé,
+that the TreeRL outperforms existing techniques,             Marzieh Fadaee, Julia Kreutzer, Ahmet Üstün, and
+highlighting the potential of RL with tree search to         Sara Hooker. 2024. Back to basics: Revisiting re-
+advance LLM in complex reasoning tasks.                      inforce style optimization for learning from human
+                                                             feedback in llms. In ACL.
+7   Limitation
+                                                           Cameron B Browne, Edward Powley, Daniel White-
+In this work, we propose to improve reinforcement            house, Simon M Lucas, Peter I Cowling, Philipp
+learning with on-policy tree search. While this              Rohlfshagen, Stephen Tavener, Diego Perez, Spyri-
+                                                             don Samothrakis, and Simon Colton. 2012. A survey
+approach demonstrates promising performance, it              of monte carlo tree search methods. IEEE Transac-
+does come with several limitations. First, current           tions on Computational Intelligence and AI in games,
+LLM inference engines do not offer special opti-             4(1):1–43.
+mizations for tree search, meaning the proposed
+EPTree still requires 2+ iterations, resulting in a        Guoxin Chen, Minpeng Liao, Chengxi Li, and Kai Fan.
+                                                             2024a. Alphamath almost zero: process supervision
+performance that is approximately 2× slower than             without process. arXiv preprint arXiv:2405.03553.
+multi-chain sampling. Additionally, we utilize pro-
+cess supervision from tree search for RL training          Guoxin Chen, Minpeng Liao, Chengxi Li, and Kai Fan.
+and attempt to optimize it from the perspective of           2024b. Alphamath almost zero: Process supervision
+                                                             without process. Preprint, arXiv:2405.03553.
+advantage and re-weighting. Further efforts, in-
+cluding how to assign appropriate weights to the           Wesley Chung, Valentin Thomas, Marlos C Machado,
+importance of different steps, how to define more           and Nicolas Le Roux. 2021. Beyond variance reduc-
+meaningful process signals from the tree structure,         tion: Understanding the true impact of baselines on
+                                                            policy optimization. In International Conference on
+and how to implement step-level reward normaliza-
+                                                            Machine Learning, pages 1999–2009. PMLR.
+tion, deserve more exploration.
+Acknowledgment. This work has been in part                 Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey,
+supported by the Natural Science Foundation                  Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman,
+                                                             Akhil Mathur, Alan Schelten, Amy Yang, Angela
+of China (NSFC) 62495063, Tsinghua Univer-                   Fan, et al. 2024. The llama 3 herd of models. arXiv
+sity (Department of Computer Science and Tech-               preprint arXiv:2407.21783.
+nology) - Siemens Ltd., China Joint Research
+Center for Industrial Intelligence and Internet of         Xidong Feng, Ziyu Wan, Muning Wen, Stephen Marcus
+                                                             McAleer, Ying Wen, Weinan Zhang, and Jun Wang.
+Things (JCIIOT), and the New Cornerstone Sci-                2024. Alphazero-like tree-search can guide large
+ence Foundation through the XPLORER PRIZE.                   language model decoding and training. Preprint,
+The corresponding author: Yuxiao Dong (yuxi-                 arXiv:2309.17179.
+Bofei Gao, Feifan Song, Zhe Yang, Zefan Cai, Yibo             with 860k pairs of competition math problems and
+  Miao, Qingxiu Dong, Lei Li, Chenghao Ma, Liang              solutions. Hugging Face repository, 13:9.
+  Chen, Runxin Xu, et al. 2024. Omni-math: A univer-
+  sal olympiad level mathematic benchmark for large         Tianle Li, Wei-Lin Chiang, Evan Frick, Lisa Dunlap,
+  language models. arXiv preprint arXiv:2410.07985.           Tianhao Wu, Banghua Zhu, Joseph E Gonzalez, and
+                                                              Ion Stoica. 2024b. From crowdsourced data to high-
+Team GLM, Aohan Zeng, Bin Xu, Bowen Wang, Chen-               quality benchmarks: Arena-hard and benchbuilder
+  hui Zhang, Da Yin, Diego Rojas, Guanyu Feng, Han-           pipeline. arXiv preprint arXiv:2406.11939.
+  lin Zhao, Hanyu Lai, et al. 2024. Chatglm: A family
+  of large language models from glm-130b to glm-4 all       Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri
+  tools. arXiv preprint arXiv:2406.12793.                     Edwards, Bowen Baker, Teddy Lee, Jan Leike,
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song,            John Schulman, Ilya Sutskever, and Karl Cobbe.
+  Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma,              2023.    Let’s verify step by step.     Preprint,
+  Peiyi Wang, Xiao Bi, et al. 2025. Deepseek-r1: In-          arXiv:2305.20050.
+  centivizing reasoning capability in llms via reinforce-
+  ment learning. arXiv preprint arXiv:2501.12948.           Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harri-
+                                                              son Edwards, Bowen Baker, Teddy Lee, Jan Leike,
+Chaoqun He, Renjie Luo, Yuzhuo Bai, Shengding Hu,             John Schulman, Ilya Sutskever, and Karl Cobbe.
+  Zhen Leng Thai, Junhao Shen, Jinyi Hu, Xu Han,              Let’s verify step by step. In The Twelfth Interna-
+  Yujie Huang, Yuxiang Zhang, et al. 2024. Olympiad-          tional Conference on Learning Representations.
+  bench: A challenging benchmark for promoting agi
+  with olympiad-level bilingual multimodal scientific       Jieyi Long. 2023. Large language model guided tree-of-
+  problems. arXiv preprint arXiv:2402.14008.                   thought. Preprint, arXiv:2305.08291.
+
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou,       Anton Lozhkov, Raymond Li, Loubna Ben Allal, Fed-
+  Mantas Mazeika, Dawn Song, and Jacob Steinhardt.            erico Cassano, Joel Lamy-Poirier, Nouamane Tazi,
+  2020. Measuring massive multitask language under-           Ao Tang, Dmytro Pykhtar, Jiawei Liu, Yuxiang Wei,
+  standing. arXiv preprint arXiv:2009.03300.                  et al. 2024. Starcoder 2 and the stack v2: The next
+                                                              generation. arXiv preprint arXiv:2402.19173.
+Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul
+  Arora, Steven Basart, Eric Tang, Dawn Song, and
+  Jacob Steinhardt. 2021. Measuring mathematical            Liangchen Luo, Yinxiao Liu, Rosanne Liu, Samrat
+  problem solving with the math dataset. NeurIPS.             Phatale, Meiqi Guo, Harsh Lara, Yunxuan Li, Lei
+                                                              Shu, Yun Zhu, Lei Meng, Jiao Sun, and Abhinav
+Zhenyu Hou, Xin Lv, Rui Lu, Jiajie Zhang, Yujiang             Rastogi. 2024. Improve mathematical reasoning in
+  Li, Zijun Yao, Juanzi Li, Jie Tang, and Yuxiao Dong.        language models by automated process supervision.
+  2025. Advancing language model reasoning through            Preprint, arXiv:2406.06592.
+  reinforcement learning and inference scaling. arXiv
+  preprint arXiv:2501.11651.                                Jincheng Mei, Wesley Chung, Valentin Thomas, Bo Dai,
+                                                               Csaba Szepesvari, and Dale Schuurmans. 2022. The
+Naman Jain, King Han, Alex Gu, Wen-Ding Li, Fanjia             role of baselines in policy gradient optimization. Ad-
+  Yan, Tianjun Zhang, Sida Wang, Armando Solar-                vances in Neural Information Processing Systems,
+  Lezama, Koushik Sen, and Ion Stoica. 2024. Live-             35:17818–17830.
+  codebench: Holistic and contamination free eval-
+  uation of large language models for code. arXiv           OpenAI. 2024.       Learning to reason with
+  preprint arXiv:2403.07974.                                  llms.            https://openai.com/index/
+                                                              learning-to-reason-with-llms.
+Amirhossein Kazemnejad, Milad Aghajohari, Eva
+ Portelance, Alessandro Sordoni, Siva Reddy, Aaron          Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Car-
+ Courville, and Nicolas Le Roux. 2024. Vineppo: Un-           roll L Wainwright, Pamela Mishkin, Chong Zhang,
+ locking rl potential for llm reasoning through refined       Sandhini Agarwal, Katarina Slama, Alex Ray, et al.
+ credit assignment. Preprint, arXiv:2410.01679.               2022. Training language models to follow instruc-
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying                  tions with human feedback. In Proceedings of the
+ Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E.                 36th International Conference on Neural Information
+ Gonzalez, Hao Zhang, and Ion Stoica. 2023. Effi-             Processing Systems, pages 27730–27744.
+ cient memory management for large language model
+ serving with pagedattention. In Proceedings of the         Qwen. 2024. Qwen2.5: A party of foundation models.
+ ACM SIGOPS 29th Symposium on Operating Systems
+ Principles.                                                Rafael Rafailov, Archit Sharma, Eric Mitchell, Christo-
+                                                              pher D Manning, Stefano Ermon, and Chelsea Finn.
+Jia Li, Edward Beeching, Lewis Tunstall, Ben Lip-             2023. Direct preference optimization: Your lan-
+   kin, Roman Soletskyi, Shengyi Huang, Kashif Rasul,         guage model is secretly a reward model. Advances in
+   Longhui Yu, Albert Q Jiang, Ziju Shen, et al. 2024a.       Neural Information Processing Systems, 36:53728–
+   Numinamath: The largest public dataset in ai4maths         53741.
+Rafael Rafailov, Archit Sharma, Eric Mitchell, Christo-    Peiyi Wang, Lei Li, Zhihong Shao, Runxin Xu, Damai
+  pher D Manning, Stefano Ermon, and Chelsea Finn.           Dai, Yifei Li, Deli Chen, Yu Wu, and Zhifang Sui.
+  2024. Direct preference optimization: Your language        2024b. Math-shepherd: Verify and reinforce llms
+  model is secretly a reward model. Advances in Neu-         step-by-step without human annotations. In Proceed-
+  ral Information Processing Systems.                        ings of the 62nd Annual Meeting of the Association
+                                                             for Computational Linguistics (Volume 1: Long Pa-
+John Schulman, Philipp Moritz, Sergey Levine, Michael        pers), pages 9426–9439.
+  Jordan, and Pieter Abbeel. 2015. High-dimensional
+  continuous control using generalized advantage esti-     Yubo Wang, Xueguang Ma, Ge Zhang, Yuansheng Ni,
+  mation. arXiv preprint arXiv:1506.02438.                   Abhranil Chandra, Shiguang Guo, Weiming Ren,
+                                                             Aaran Arulraj, Xuan He, Ziyan Jiang, et al. 2024c.
+Amrith Setlur, Chirag Nagpal, Adam Fisch, Xinyang            Mmlu-pro: A more robust and challenging multi-task
+ Geng, Jacob Eisenstein, Rishabh Agarwal, Alekh              language understanding benchmark. arXiv preprint
+ Agarwal, Jonathan Berant, and Aviral Kumar. 2024.           arXiv:2406.01574.
+ Rewarding progress: Scaling automated process veri-
+ fiers for llm reasoning. Preprint, arXiv:2410.08146.      Yuxi Xie, Anirudh Goyal, Wenyue Zheng, Min-Yen
+                                                             Kan, Timothy P Lillicrap, Kenji Kawaguchi, and
+Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu,              Michael Shieh. 2024. Monte carlo tree search boosts
+  Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan             reasoning via iterative preference learning. arXiv
+  Zhang, Y. K. Li, Y. Wu, and Daya Guo. 2024a.               preprint arXiv:2405.00451.
+  Deepseekmath: Pushing the limits of mathemati-
+  cal reasoning in open language models. Preprint,         Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran,
+  arXiv:2402.03300.                                          Thomas L. Griffiths, Yuan Cao, and Karthik
+                                                             Narasimhan. 2023. Tree of thoughts: Deliber-
+Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu,              ate problem solving with large language models.
+  Junxiao Song, Mingchuan Zhang, YK Li, Yu Wu,               Preprint, arXiv:2305.10601.
+  and Daya Guo. 2024b. Deepseekmath: Pushing the
+  limits of mathematical reasoning in open language        Dan Zhang, Sining Zhoubian, Ziniu Hu, Yisong Yue,
+  models. arXiv preprint arXiv:2402.03300.                   Yuxiao Dong, and Jie Tang. 2024a. Rest-mcts*: Llm
+                                                             self-training via process reward guided tree search.
+David Silver, Thomas Hubert, Julian Schrittwieser, Ioan-     arXiv preprint arXiv:2406.03816.
+  nis Antonoglou, Matthew Lai, Arthur Guez, Marc
+  Lanctot, Laurent Sifre, Dharshan Kumaran, Thore          Dan Zhang, Sining Zhoubian, Ziniu Hu, Yisong Yue,
+  Graepel, et al. 2017. Mastering chess and shogi by         Yuxiao Dong, and Jie Tang. 2024b. Rest-mcts*: Llm
+  self-play with a general reinforcement learning algo-      self-training via process reward guided tree search.
+  rithm. arXiv preprint arXiv:1712.01815.                    Preprint, arXiv:2406.03816.
+Joar Skalse, Nikolaus Howe, Dmitrii Krasheninnikov,        Jeffrey Zhou, Tianjian Lu, Swaroop Mishra, Sid-
+  and David Krueger. 2022. Defining and characteriz-          dhartha Brahma, Sujoy Basu, Yi Luan, Denny Zhou,
+  ing reward hacking. Advances in Neural Information          and Le Hou. 2023. Instruction-following evalu-
+  Processing Systems, 35:9460–9471.                           ation for large language models. arXiv preprint
+                                                              arXiv:2311.07911.
+Charlie Snell, Jaehoon Lee, Kelvin Xu, and Aviral Ku-
+  mar. 2024. Scaling llm test-time compute optimally       Shuyan Zhou, Frank F Xu, Hao Zhu, Xuhui Zhou,
+  can be more effective than scaling model parameters.       Robert Lo, Abishek Sridhar, Xianyi Cheng, Tianyue
+  Preprint, arXiv:2408.03314.                                Ou, Yonatan Bisk, Daniel Fried, et al. 2024. We-
+                                                             barena: A realistic web environment for building
+Gemini Team, Rohan Anil, Sebastian Borgeaud, Jean-           autonomous agents. In The Twelfth International
+  Baptiste Alayrac, Jiahui Yu, Radu Soricut, Johan           Conference on Learning Representations.
+  Schalkwyk, Andrew M Dai, Anja Hauth, Katie
+  Millican, et al. 2023.    Gemini: a family of            Qihao Zhu, Daya Guo, Zhihong Shao, Dejian Yang,
+  highly capable multimodal models. arXiv preprint           Peiyi Wang, Runxin Xu, Y Wu, Yukun Li, Huazuo
+  arXiv:2312.11805.                                          Gao, Shirong Ma, et al. 2024. Deepseek-coder-v2:
+                                                             Breaking the barrier of closed-source models in code
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Al-           intelligence. arXiv preprint arXiv:2406.11931.
+  bert, Amjad Almahairi, Yasmine Babaei, Nikolay
+  Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti
+  Bhosale, et al. 2023. Llama 2: Open founda-
+  tion and fine-tuned chat models. arXiv preprint
+  arXiv:2307.09288.
+Peiyi Wang, Lei Li, Zhihong Shao, R. X. Xu, Damai
+  Dai, Yifei Li, Deli Chen, Y. Wu, and Zhifang Sui.
+  2024a. Math-shepherd: Verify and reinforce llms
+  step-by-step without human annotations. Preprint,
+  arXiv:2312.08935.
+A      Position Distribution Analysis
+We study the position of selected forking tokens
+in their branches. As illustrated in Figure 8, we                                                            x1
+plot the relative positions of forking points, calcu-
+lated as the ratio between a token’s forking position                                                        x2
+and its branch length. The resulting distribution
+shows a roughly uniform pattern, which supports
+                                                                                                             x3
+our assumptions presented in Appendix B.
+
+              1.6
+                    Forking Token Position Distribution by EPTree
+                      Uniform Distribution
+              1.4
+              1.2
+              1.0
+    Density
+
+
+
+
+              0.8                                                          Figure
+                                                                             Figure 1:   Branching
+                                                                                    9: Forking     tokenprocess       illustration
+                                                                                                            illustration  when n =when
+                                                                                                                                   3, t = n
+                                                                                                                                          2, =
+              0.6                                                                                i.i.d         i.i.d
+                                                                           3,where
+                                                                              t = 2,xwhere
+                                                                                     1 , x2 , x3x1∼, xU(0,
+                                                                                                       2 , x31).∼ U(0, 1).
+              0.4
+              0.2
+              0.0 0.0      0.2        0.4       0.6     0.8     1.0
+                                    Relative Position                        For the multi-sample approach with the same com-
+                                                                             pletion tokens, the number of leaves is:
+Figure 8: Distribution of the relative positions of forking
+tokens selected by EPTree on Omni-MATH-500, based                                                                  nt
+on the ratio of forking position to branch length.                                               Nmulti = 1 +         .
+                                                                                                                   2
+                                                                            The ratio of the number of leaves in the tree to the
+B      Theoritical Analysis of EPTree                                       multi-sample approach is:
+Theorem 1. Consider a setting where forking to-
+                                                                                                               1 + nt
+kens follow a uniform distribution U(0, 1) within                                               R(n, t) =             .
+each branch, and generation lengths remain fixed                                                               1 + nt
+                                                                                                                   2
+without repetition, subject to the constraint that
+                                                                             Let x = nt ≥ 1. Then:
+parameter l ≤ 2. Under these conditions, the
+entropy-guided tree search algorithm presented in                                                            1+x
+Section 3.1 yields a leaf count that is bounded be-                                               R(x) =            .
+                                                                                                             1 + x2
+       4      12
+tween and        times that of a multi-sampling ap-
+       3      5                                                             The derivative of R(x) with respect to x is:
+proach, while maintaining identical computational
+complexity in terms of total token evaluations.                                                              1
+                                                                                            R′ (x) =                   > 0,
+Proof. We present the proof of Theorem 1 by an-                                                                  x 2
+                                                                                                         1+
+alyzing two cases based on the branching process                                                                 2
+illustrated in Figure 9. Let x1 , x2 , . . . , xn be i.i.d.
+random variables uniformly distributed on [0, 1].                            indicating that R(x) is monotonically increasing.
+   Case l = 1: Assume all completion lengths are                             Evaluating at the endpoints:
+unit 1. The total completion length of the entropy-                                            4
+tree is:                                                                              R(1) = , lim R(x) = 2.
+                          Xn                                                                   3      x→∞
+              L=1+t·         (1 − xi ).                                                            
+                                             i=1
+                                                                                               4
+                                                                            Thus, R(n, t) ∈      , 2 when l = 1.
+The expected total length is:                                                                  3                  1
+                                                                              Case l = 2: In this scenario, the next top-n
+                                    n
+                                    X                               nt      entropy token appears either on the main chain or
+        E[L] = 1 + t ·                       E[1 − xi ] = 1 +          .
+                                                                    2       on one of the branches. The probabilities of these
+                                    i=1
+                                                                            events are:
+The number of leaves in the tree is:
+                                                                                         1                                1−x
+                                                                                                         and              P i          ,
+                               Ntree = 1 + nt.
+                                                                                      P
+                                                                               1+t       i (1 − xi )              1+t      i (1 − xi )
+Respectively. The expected new completion length       Table 4: (M, N, L, T ) Parameter Evaluation of EPTree
+is:                                                    on Omni-MATH-500. The table reports the leaf number,
+                                                       PassRate, and total generation tokens under different
+                
+                  1    tP            2
+                                                      parameter combinations for k = 16 and k = 64.
+                    +     i (1 − xi ) 
+    E [li ] = E  2 2 P                 := φ.
+                
+                   1 + t i (1 − xi )                       (M, N, L, T)    #Leaf ↑   PassRate ↑   #Token ↓
+                                                                                  k = 16
+
+Through Monte Carlo simulation, it is observed that         multi-16         16            52.4    19858
+                                                           (8, 3, 1, 1)      32            58.4    25223
+φ monotonically decreases with n. As n → ∞, the            (7, 2, 1, 2)      35            59.2    26200
+               1
+ratio tends to . For n = 1, the integral value is          (6, 2, 2, 1)      30            54.4    20537
+               3                                         (6, 2, 1, 2)      30            56.9    22268
+        1               1          1
+ln 2 − . Thus, φ ∈        , ln 2 − .                       (5, 3, 1, 2)      35            58.6    25269
+        4               3          4                       (5, 2, 1, 3)      35            56.0    25210
+   The total generation length is:                         (5, 3, 2, 1)      35            58.0    22668
+                                                           (5, 1, 2, 3)      35            58.6    21895
+                   1
+                1 + nt + nt · φ,                                                  k = 64
+                   2
+                                                             multi-64       64             67.4    79367
+And the number of leaves is:                               (16, 2, 2, 2)    144            70.0    88257
+                                                           (16, 4, 1, 2)    144            71.4   101744
+                                                           (16, 2, 1, 4)    144            72.6   100468
+                     1 + 2nt.
+                                                            (9, 5, 1, 3)    144            71.9   98193
+                                                            (9, 3, 1, 5)    144            71.6   97193
+For the same completion length, the number of               (8, 8, 1, 2)    136            70.7   92946
+leaves in the multi-sample approach is:                     (8, 4, 1, 4)    136            69.7   90015
+                                                            (8, 8, 2, 1)    136            68.6   79582
+                             
+                         1                                  (8, 4, 2, 2)    136            71.0   77768
+                1+         + φ nt.                          (8, 2, 2, 4)    136            69.4   76750
+                         2
+
+The ratio of the number of leaves in the tree to the
+multi-sample approach is:                              C     Detailed Evaluation of EPTree
+                                                       Table 4 presents a comprehensive evaluation of EP-
+                        1 + 2nt
+           R(nt) =              ,                    Tree in comparison to the multi-chain baseline for
+                          1
+                     1+     + φ nt                     k = 16. We select the RL training configuration
+                          2                            (6, 2, 1, 2), as it offers a similar inference cost to
+                                                       the chain-16 setting while demonstrating improved
+Which is also monotonically increasing in nt.
+                                                       efficiency (requiring only one interaction) and ef-
+Therefore:
+                                                       fectiveness (achieving 56.9 compared to 52.4).
+                                
+                      6      4
+         R(nt) ∈         ,         .
+                   3 + 2φ 1 + 2φ
+                                                       D     Results on Other Reasoning
+Specifically:                                                Benchmarks
+   
+                     6                                 Figure 10 and 11 provide additional RL training
+   R(nt) ≥                   ≈ 1.544                results on MATH500, AMC, LiveCodeBench, and
+                            1
+   
+   
+   
+   
+           3 + 2 · ln 2 −                             AIME2024, demonstrating that TreeRL with EP-
+                            4
+               4                                       Tree sampling outperforms RL with traditional
+    R(nt) <           = 2.4
+   
+   
+   
+                  1                                   multi-chain sampling across various benchmarks.
+            1+2·
+   
+   
+                   3
+                                                       E     TreeRL on General tasks
+         bothcases, the ratio R(n, t) lies in the
+Combining
+         4 12                                          To further evaluate TreeRL’s generalizability, we
+interval ,     .
+         3 5                                           further conducted experiments on general tasks.
+                                                       We evaluate TreeRL and ChainRL on 3 general
+                          MATH500                                                                 AMC
+          82
+          80                                                            55
+Accuracy(%)
+
+
+
+
+                                                              Accuracy(%)
+          78                                                            50
+          76                        ChainRL                                                             ChainRL
+                                    TreeRL                              45                              TreeRL
+          74
+               0       100      200    300                                       0        100       200    300
+                        Training steps                                                    Training steps
+                       LiveCodeBench                                        30              AIME-2024
+          22
+          20                                                                25
+Accuracy(%)
+
+
+
+
+                                                               Accuracy(%)
+          18                                                                20
+          16                                                                15
+          14                        ChainRL                                 10                          ChainRL
+                                    TreeRL                                                              TreeRL
+          12
+               0       100      200    300                                       0         100      200    300
+                       Training steps                                                      Training steps
+   Figure 10: Performance comparison between TreeRL and ChainRL on MATH500 (Upper Left), AMC (Upper
+   Right), LiveCodeBench (Lower Left), and AIME2024 (Lower Right); experiments are based on Qwen-2.5-14B.
+
+
+
+                             MATH500                                                              AMC
+          65.0                                                                           ChainRL
+                                                                                         TreeRL
+                                                                        35
+Accuracy(%)
+
+
+
+
+                                                              Accuracy(%)
+
+
+
+
+          62.5
+          60.0
+                                                                        30
+          57.5
+                                    ChainRL
+          55.0                      TreeRL                              25
+                   0    100     200    300                                       0        100       200      300
+                         Training steps                                                   Training steps
+                       LiveCodeBench                                                         AIME-2024
+          17                                                                12.5                           ChainRL
+          16                                                                                               TreeRL
+                                                                            10.0
+Accuracy(%)
+
+
+
+
+                                                               Accuracy(%)
+
+
+
+
+          15                                                                 7.5
+          14                                                                 5.0
+                                    ChainRL
+          13                        TreeRL                                   2.5
+               0       100      200    300                                           0      100      200     300
+                       Training steps                                                       Training steps
+   Figure 11: Performance comparison between TreeRL and ChainRL on MATH500 (Upper Left), AMC (Upper
+   Right), LiveCodeBench (Lower Left), and AIME2024 (Lower Right); experiments are based on GLM4-9B.
+tasks: MMLU-Pro (Wang et al., 2024c), Arena-
+Hard (Li et al., 2024b), and IFEval (Zhou et al.,
+2023).
+
+   • MMLU-Pro extends MMLU (Hendrycks
+     et al., 2020) with more challenging reason-
+     ing tasks, fewer noisy questions, and a larger
+     answer set (4-10 options). We use the chain-
+     of-thought prompt and measure the pass rate.
+
+   • Arena-Hard consists of 500 difficult prompts
+     from Chatbot Arena, focusing on human-like
+     preferences. We evaluate using the win rate
+     score, comparing against the GPT-4-0314
+     baseline.
+
+   • IFEval tests the model’s ability to follow
+     prompt instructions. We use the strict prompt
+     metric for evaluation.
+
+
+           MMLU-Pro     Arena-hard   IFEval   Avg
+ SFT           57.6        57.5       49.9    55.0
+ ChainRL       64.5        72.2       56.0    64.2
+ TreeRL        64.5        71.8       58.2    64.9
+
+   Table 5: Performance on general benchmarks.
+
+   As is shown in Table 5, we observe a compa-
+rable performance between TreeRL and ChainRL.
+This indicates that while TreeRL exhibits a par-
+ticular advantage in reasoning tasks, it maintains
+its performance in general tasks, achieving robust
+performance in diverse task types.
+

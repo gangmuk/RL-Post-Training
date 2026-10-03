@@ -1,0 +1,19 @@
+Research task: read one paper and its open-source code in full, and report precisely how it works.
+
+Context: I'm helping a researcher who is designing a new sampling scheme for GRPO (Group Relative Policy Optimization) RL post-training of LLM agents. Their idea: in multi-turn agentic tasks (turns separated by tool calls), don't launch all G trajectories independently from the shared prompt; start with a few, and adaptively fork new samples from an intermediate turn (sharing the prefix), so the group becomes a tree. We need to know exactly what prior work already does so we can identify what is still novel.
+
+Your target: the paper I recall as "TreeRL: LLM Reinforcement Learning with On-Policy Tree Search" (2025, I believe ACL 2025, from a Tsinghua/Zhipu group, with a tree search method called something like EPTree — entropy-guided tree search). I am recalling this from memory and have NOT verified it — first confirm it exists and get the correct citation (arXiv ID, authors, date). Read the full paper (arXiv HTML or PDF, not just the abstract), then find the official code repo if one exists (possibly under THUDM), clone it into /private/tmp/claude-502/-Users-gangmuk2-projects-rlopt/355117d8-8324-4513-bf82-748327fc62da/scratchpad/prior_work/ and read the actual implementation.
+
+Report back, answering each of these specifically:
+1. Citation: exact title, authors, arXiv ID, date, venue, repo URL (or "no code released").
+2. Tree construction: what is a node (token / segment / turn)? When and where do branches happen — fixed schedule or adaptive? If adaptive, exactly what signal drives it (e.g. token entropy) and how is the fork point chosen? How are width/depth/number-of-forks parameters set?
+3. Advantage/baseline: exactly how node values and advantages are computed over the tree. Give the formulas (global vs local/parent-relative advantage, any reweighting by subtree size).
+4. Shared prefix handling in the loss: are prefix tokens trained once or once per descendant? Any weighting?
+5. Bias/on-policy discussion: do they discuss whether tree sampling biases the policy gradient, or how "on-policy" is preserved?
+6. Environment state: are the tasks single-turn reasoning or multi-turn with tools? If there is an environment, how is it forked?
+7. Systems aspects: KV/prefix cache reuse, sync vs async, training framework and inference engine.
+8. Results: main claims versus chain-based (flat) sampling at equal token budget, with numbers.
+9. Code: the specific files and functions implementing fork-point selection and the advantage computation, with a short description of each. Note any discrepancy between paper and code.
+10. Limitations they state and stated future work.
+
+Distinguish clearly between what you verified by reading the paper/code directly and what you are inferring. If you could not access something, say so plainly rather than filling in from guesswork. Do not modify anything outside the scratchpad directory.

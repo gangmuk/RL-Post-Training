@@ -1,0 +1,19 @@
+Research task: read one paper and its open-source code in full, and report precisely how it works.
+
+Context: I'm helping a researcher who is designing a new sampling scheme for GRPO (Group Relative Policy Optimization) RL post-training of LLM agents. Their idea: in multi-turn agentic tasks (turns separated by tool calls), don't launch all G trajectories independently from the shared prompt; start with a few, and adaptively fork new samples from an intermediate turn (sharing the prefix), so the group becomes a tree. We need to know exactly what prior work already does so we can identify what is still novel.
+
+Your target: the paper I recall as "Tree Search for LLM Agent Reinforcement Learning" (2025), which proposes "Tree-GRPO". I am recalling this from memory and have NOT verified title/authors/venue — first confirm it exists and get the correct citation (arXiv ID, authors, date). If the title is slightly different, find the right one. Read the full paper (arXiv HTML or PDF, not just the abstract), then find the official code repo if one exists, clone it into /private/tmp/claude-502/-Users-gangmuk2-projects-rlopt/355117d8-8324-4513-bf82-748327fc62da/scratchpad/prior_work/ and read the actual implementation.
+
+Report back, answering each of these specifically:
+1. Citation: exact title, authors, arXiv ID, date, repo URL (or "no code released").
+2. Tree construction: what is a node (token / sentence / full agent turn)? When and where do branches happen — fixed schedule or adaptive? If adaptive, what signal drives it? How are the branching parameters (width, depth, number of trees) set?
+3. Advantage/baseline: exactly how advantages are computed over the tree (intra-tree sibling baselines, inter-tree, both?). Give the formulas. How do they normalise (mean only, mean/std)?
+4. Shared prefix handling in the loss: are prefix tokens trained once or once per descendant? Any weighting?
+5. Bias/on-policy discussion: do they discuss whether tree sampling biases the policy gradient? Any theoretical claims?
+6. Environment state: how do they fork the environment at an intermediate turn (snapshot, replay, stateless tools only)? What tasks/environments are used?
+7. Systems aspects: KV/prefix cache reuse, synchronous vs asynchronous training, which training framework and inference engine.
+8. Results: main claims on sample/token efficiency versus flat GRPO, with numbers.
+9. Code: the specific files and functions implementing branching and the advantage computation, with a short description of what each does. Note any discrepancy between paper and code.
+10. Limitations they state, and anything they explicitly leave as future work.
+
+Distinguish clearly between what you verified by reading the paper/code directly and what you are inferring. If you could not access something (paper full text, repo), say so plainly rather than filling in from guesswork. Do not modify anything outside the scratchpad directory.
