@@ -48,3 +48,40 @@ Fetched the arXiv HTML (via automated summary) to get the problem statement, sco
 
 **8. First-hand reads of PATR and ARPO.**
 Read the full PATR text (pasted by the user) and the ARPO method section (§2–3.3) from `prior_work/papers/arpo.txt`. Both match the agent reports. New PATR details and a judgement are appended to `prior_work/reports/patr.md`. Note: the text the user pasted as "arpo paper" was a different paper, "BPO: Staying Close to the Behavior LLM Creates Better Online LLM Alignment" (arXiv 2406.12168, online DPO with the behaviour policy as reference model). It is unrelated to ARPO and also not the "Branching Policy Optimization" BPO (2607.14171) from the survey.
+
+## 2026-10-03, second session (cloud, claude/task-a5uw74)
+
+Network policy in this session blocked arxiv.org and its mirrors (alphaxiv, huggingface, ar5iv, semanticscholar, pith) for both shell and WebFetch. GitHub clones worked. The slime fork at `/Users/gangmuk2/projects/rlopt` was not reachable.
+
+**9. Read upstream slime's fully-async path.**
+Cloned https://github.com/THUDM/slime at `8c17b67` (2026-10-02) and read `fully_async_rollout.py`, `train.py`, the weight-update path, `sglang_rollout.py`, `slime/agent/trajectory.py`, staleness tracking and reward post-processing. Written up with a fork sketch in `notes/slime_async_path.md`. Main findings:
+
+- Upstream has no `train_async.py`. Async is the normal `train.py` plus a background rollout worker that keeps groups in flight across steps.
+- `--flush-cache-interval` other than 1 gives PipelineRL-style in-place weight sync: unfinished sequences keep decoding under new weights on old-weight KV. The default (1) aborts and flushes the cache at every sync.
+- `Sample.weight_versions` records one version per generate call, and staleness is `current − min(versions)`. A fork would inherit its prefix's age.
+- `TrajectoryManager` already trains shared prefix turns once across sibling leaves, but with the first leaf's advantage.
+- The silent batch-wide normalisation fallback for uneven group sizes is still there upstream, in `slime/data/batch_builder.py:202`. Custom reward-post-process and convert hooks can replace it.
+- In the coding-agent example, the agent harness runs inside an E2B sandbox, so forking a turn means forking a live process.
+
+**10. Prior-work reading, round 3.**
+Two agents, briefs in `agent_briefs/bpo_epig.txt` and `agent_briefs/async_gap.txt`. Both were limited to web-search snippets by the network policy.
+
+- BPO and EPIG-Tree estimators (`prior_work/reports/bpo_epig.md`): BPO's unbiasedness is per state given s_t, and a snippet says the entropy-chosen tree over-weights high-entropy states without correction. Compute is matched by number of returns. EPIG-Tree uses an edge advantage with a segment mask, and finds on math that masks matter more than placement.
+- Async gap check (`prior_work/reports/async_gap.md`): no paper found doing tree rollouts under barrier-free async training. Closest threat is RTPO (2608.18682), which forks siblings under newly synced weights from older prefixes with a sync barrier per fork. Building blocks: PrefixRL, PNPO, Missing Old Logits, VCPO. Counter-position: SAO.
+- Confirmed through search that PipelineRL (2509.19128) deliberately keeps old-weight KV across in-flight weight updates.
+
+**11. Synthesis updated.**
+`prior_work/README.md` gained the round-3 table rows, a revision of axis (c), and estimator notes. `README.md` status, main finding, open questions and next steps were rewritten. The async axis is narrower: what remains is fork scheduling coupled to weight sync without a barrier, and mixed-version sibling baselines.
+
+### Agent run stats (round 3)
+
+| Agent | Tool calls | Duration | Report |
+|---|---|---|---|
+| BPO + EPIG-Tree | 35 | 185 s | `prior_work/reports/bpo_epig.md` |
+| Async gap check | 51 | 695 s | `prior_work/reports/async_gap.md` |
+
+### Caveats carried forward
+
+- Nothing in round 3 is verbatim from a paper. Re-read RTPO, SAO, BPO and EPIG-Tree from a machine with arXiv access before citing.
+- The slime reading is upstream, not the fork.
+- torchtitan PR #4761 and OPTS-TTPO (2609.40035) were seen in search results only.

@@ -1,0 +1,15 @@
+Context: a researcher is studying "tree / branching rollouts for GRPO in multi-turn agentic RL under asynchronous training". Two papers constrain their novelty claim and need a careful read focused on the ADVANTAGE ESTIMATOR and its bias/variance properties, plus fork mechanics and cost.
+
+Papers (arXiv; shell curl to arxiv.org is blocked, use WebFetch on https://arxiv.org/html/<id> first (try v1/v2 suffixes too), then https://arxiv.org/abs/<id>, alphaxiv.org, or WebSearch for mirrors):
+1. BPO — "Branching Policy Optimization: Sandbox-Native Language Agent Reinforcement Learning", arXiv 2607.14171.
+2. EPIG-Tree — "EPIG-Tree: Compute-Optimal Branching for Gradient-Efficient Reinforcement Learning", arXiv 2609.20004.
+
+WebFetch returns an AI summary, so ask it targeted questions in several calls and request VERBATIM quotes of equations and claims. For each paper report:
+- Exact advantage/estimator definition (equations verbatim as much as possible): how leaves, siblings, pre-branch prefix tokens get advantages; leave-one-out baseline; λ propagation (BPO); V̂(child)−V̂(h) and token masks (EPIG).
+- Every claim of unbiasedness or variance reduction: the exact statement, its assumptions, and whether it accounts for the branch point being CHOSEN adaptively from the sampled data (selection bias). Is the branch selection post hoc on the backbone, and does that bias the estimator? Do they reweight prefix tokens that appear in multiple leaves (prefix over-weighting)?
+- Fork mechanics: when forks are decided (online vs post hoc), how sandbox state is restored (BPO: overlayfs/CRIU etc.; EPIG: cloned simulators), measured fork/snapshot cost, whether KV cache of the prefix is reused, whether siblings run concurrently.
+- Training setup: sync or async, framework, policy-version handling, group sizes, compute accounting (equal tokens? equal wall-clock?).
+- Headline results with baselines and any seeds/CIs; negative results.
+- Anything said about asynchronous training, stale weights, or off-policy prefixes (quote it).
+- Explicit future-work lists (quote).
+Tag each fact [HTML-summary] or [verbatim quote]. Mark unverifiable things UNVERIFIED. Output a single markdown report, max ~1500 words, no preamble.
