@@ -85,3 +85,17 @@ Two agents, briefs in `agent_briefs/bpo_epig.txt` and `agent_briefs/async_gap.tx
 - Nothing in round 3 is verbatim from a paper. Re-read RTPO, SAO, BPO and EPIG-Tree from a machine with arXiv access before citing.
 - The slime reading is upstream, not the fork.
 - torchtitan PR #4761 and OPTS-TTPO (2609.40035) were seen in search results only.
+
+**12. Compute analysis of branching techniques (scope narrowed: sync only, async set aside by request).**
+Re-cloned Tree-GRPO, TreePO, TreeRL, ARPO and ATPO at the same commits as round 1, and checked the compute-relevant code first-hand:
+- Prefix caching: TreePO and ARPO hard-code it on; TreeRL leaves it off; Tree-GRPO leaves it at the vLLM default.
+- Scheduling barriers: per segment in TreePO, generate-then-all-tools per round in ARPO, a serial expansion phase in Tree-GRPO and TreeRL, a per-tree turn loop in ATPO.
+- ATPO discards pruned candidates after paying for decode, user-simulator and critic calls.
+- None of them dedups shared prefixes in training.
+
+Wrote `analysis/compute_model.py`, a synthetic token and wall-clock model of six fork patterns under an agentic and a SWE-like workload. Findings, in `notes/compute_analysis.md`:
+- Rollout savings per leaf are roughly 20–37%, or 3–11% for ARPO's early forks.
+- Training compute per leaf does not fall without dedup, because forked leaves are length-biased.
+- Post-hoc forking adds 20–55% rollout wall-clock.
+- Round barriers cost 3.7–6.7× wall-clock even for flat GRPO, which dwarfs the branching savings.
+- No paper measures compute in a way that allows comparison across papers.

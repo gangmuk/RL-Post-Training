@@ -13,7 +13,8 @@ Standard GRPO samples G independent trajectories from a shared prompt. In a mult
 - Understood how GRPO is implemented in the slime fork: [notes/slime_grpo_implementation.md](notes/slime_grpo_implementation.md).
 - Read upstream slime's fully-async path and sketched where a fork would go: [notes/slime_async_path.md](notes/slime_async_path.md). The fork itself was not reachable from that session; re-check against it.
 - Prior-work passes: four papers read in full with code, a wider survey, PATR read first-hand, and a round-3 gap check on async trees (search snippets only). Synthesis: [prior_work/README.md](prior_work/README.md).
-- No design, code, or experiments yet.
+- Compute analysis of each branching technique (code-verified for Tree-GRPO, TreePO, TreeRL, ARPO, ATPO) with a synthetic cost model: [notes/compute_analysis.md](notes/compute_analysis.md), [analysis/compute_model.py](analysis/compute_model.py).
+- No design or real experiments yet.
 
 ## Main finding so far
 
@@ -58,6 +59,7 @@ Candidate novelty axes, strongest first:
 | `prior_work/papers/` | PDFs and extracted text of the four papers read in full |
 | `prior_work/repos/` | Clones of seven prior-work repos (git-ignored; URLs and commits in `prior_work/README.md`) |
 | `prior_work/reports/` (round 3) | `bpo_epig.md`, `async_gap.md`: search-snippet reads, weaker than the rest |
+| `analysis/` | Synthetic cost model for branching schemes (`compute_model.py`) |
 | `research_log.md` | Chronological log of what was done |
 | `agent_briefs/` | The exact brief given to each reading agent |
 | `agent_transcripts/` | Raw JSONL transcripts of each agent's session |
